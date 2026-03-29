@@ -18,9 +18,8 @@ FROM base AS api
 WORKDIR /app
 
 COPY --from=build --chown=node:node /prod/api /app
-#COPY --from=build --chown=node:node /app/.git /app/.git
+# ✅ حذفنا أي COPY للـ .git
 
 USER node
-
 EXPOSE 9000
 CMD [ "node", "src/cobalt" ]
