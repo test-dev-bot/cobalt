@@ -7,19 +7,16 @@ RUN apt-get update && apt-get install -y python3 make g++ git
 
 WORKDIR /app
 
-# نسخ ملفات الاعتماديات فقط لتسريع البناء
-COPY pnpm-lock.yaml package.json ./
+# نسخ ملفات المشروع
 COPY . .
 
-# تثبيت الاعتماديات وبناء المشروع
+# تثبيت الاعتماديات (بدون تنفيذ سكريبت build لأنه غير موجود)
 RUN pnpm install --frozen-lockfile
-RUN pnpm run build
 
-# تنفيذ deploy للمشروع المطلوب (api) إلى مجلد منفصل
+# تنفيذ deploy للمشروع المطلوب (api)
 RUN pnpm deploy --filter=@imput/cobalt-api --prod /prod/api
 
 # --- الحل الجذري لمشكلة Git ---
-# إنشاء هيكل Git وهمي داخل مجلد الإنتاج لإرضاء مكتبة git-rev-sync
 RUN mkdir -p /prod/api/.git/objects /prod/api/.git/refs && \
     echo "ref: refs/heads/master" > /prod/api/.git/HEAD
 
@@ -28,18 +25,18 @@ FROM node:24-slim AS api
 
 WORKDIR /app
 
-# نسخ المجلد الجاهز من مرحلة البناء (يحتوي الآن على .git الوهمي)
+# نسخ المجلد الجاهز من مرحلة البناء
 COPY --from=build /prod/api /app
 
-# إعداد متغيرات البيئة الأساسية داخل الدوكر
+# إعداد متغيرات البيئة
 ENV NODE_ENV=production
 ENV COBALT_VERSION=10.0.0
 ENV API_URL=https://ok-download.onrender.com
 
-# التأكد من وجود ffmpeg (إذا كان التطبيق يحتاجه)
+# تثبيت ffmpeg للتعامل مع الفيديو
 RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
 
 EXPOSE 3000
 
-# أمر التشغيل النهائي
+# أمر التشغيل (تأكد أن الملف الرئيسي هو src/index.js)
 CMD ["node", "src/index.js"]
