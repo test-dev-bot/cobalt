@@ -1,25 +1,45 @@
-FROM node:24-alpine AS base
-ENV PNPM_HOME="/pnpm"
-ENV PATH="$PNPM_HOME:$PATH"
+# Stage 1: Build
+FROM node:24-slim AS build
 
-FROM base AS build
+# تثبيت pnpm وأدوات البناء الضرورية
+RUN corepack enable && corepack prepare pnpm@9.6.0 --activate
+RUN apt-get update && apt-get install -y python3 make g++ git
+
 WORKDIR /app
-COPY . /app
 
-RUN corepack enable
-RUN apk add --no-cache python3 alpine-sdk
+# نسخ ملفات الاعتماديات فقط لتسريع البناء
+COPY pnpm-lock.yaml package.json ./
+COPY . .
 
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
-    pnpm install --prod --frozen-lockfile
+# تثبيت الاعتماديات وبناء المشروع
+RUN pnpm install --frozen-lockfile
+RUN pnpm run build
 
+# تنفيذ deploy للمشروع المطلوب (api) إلى مجلد منفصل
 RUN pnpm deploy --filter=@imput/cobalt-api --prod /prod/api
 
-FROM base AS api
+# --- الحل الجذري لمشكلة Git ---
+# إنشاء هيكل Git وهمي داخل مجلد الإنتاج لإرضاء مكتبة git-rev-sync
+RUN mkdir -p /prod/api/.git/objects /prod/api/.git/refs && \
+    echo "ref: refs/heads/master" > /prod/api/.git/HEAD
+
+# Stage 2: Production
+FROM node:24-slim AS api
+
 WORKDIR /app
 
-COPY --from=build --chown=node:node /prod/api /app
-# ✅ حذفنا أي COPY للـ .git
+# نسخ المجلد الجاهز من مرحلة البناء (يحتوي الآن على .git الوهمي)
+COPY --from=build /prod/api /app
 
-USER node
-EXPOSE 9000
-CMD [ "node", "src/cobalt" ]
+# إعداد متغيرات البيئة الأساسية داخل الدوكر
+ENV NODE_ENV=production
+ENV COBALT_VERSION=10.0.0
+ENV API_URL=https://ok-download.onrender.com
+
+# التأكد من وجود ffmpeg (إذا كان التطبيق يحتاجه)
+RUN apt-get update && apt-get install -y ffmpeg && rm -rf /var/lib/apt/lists/*
+
+EXPOSE 3000
+
+# أمر التشغيل النهائي
+CMD ["node", "src/index.js"]
